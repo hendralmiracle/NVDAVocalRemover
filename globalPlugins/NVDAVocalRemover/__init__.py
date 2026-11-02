@@ -1,0 +1,826 @@
+# NVDAVocalRemover - Global Plugin
+# Shortcut: NVDA+Shift+X
+# Engine: MVSEP Cloud API + High-accuracy BS-Roformer / Mel-Roformer Models
+
+import os
+import sys
+import threading
+import json
+import urllib.request
+import urllib.parse
+import urllib.error
+import mimetypes
+import uuid
+import winsound
+import time
+import webbrowser
+import tempfile
+import re
+import wx
+
+import globalPluginHandler
+import ui
+import api
+import gui
+from scriptHandler import script
+import addonHandler
+
+addonHandler.initTranslation()
+
+CURRENT_VERSION = "1.1.0"
+GITHUB_REPO = "hendralmiracle/NVDAVocalRemover"
+
+CONFIG_DIR = os.path.join(os.environ.get('APPDATA', ''), 'NVDAVocalRemover')
+CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
+DEFAULT_OUT_DIR = os.path.join(os.path.expanduser("~"), "Music", "VocalRemover")
+
+# Categories & Models
+CATEGORIES = [
+    "1: Music and vocals",
+    "2: Keep backing vocals",
+    "3: Extract backing vocals",
+    "4: Bass",
+    "5: Drums"
+]
+
+MODELS_PER_CAT = {
+    "1: Music and vocals": [
+        "Mel-Roformer deux (becruily)",
+        "BS-Roformer HyperACE (unwa)"
+    ],
+    "2: Keep backing vocals": [
+        "BS-RoFormer Kar (anvuew)",
+        "BS-RoFormer Kar (frazer & becruily)",
+        "Mel-RoFormer Kar by becruily"
+    ],
+    "3: Extract backing vocals": [
+        "Mel-RoFormer Lead/Back"
+    ],
+    "4: Bass": [
+        "BS-RoFormer"
+    ],
+    "5: Drums": [
+        "Mel-RoFormer"
+    ]
+}
+
+# Mapping to MVSEP API parameters: (sep_type, add_opt1, add_opt2)
+MVSEP_CONFIG = {
+    # 1: Music and vocals
+    "Mel-Roformer deux (becruily)": (48, 11, 2),        # MelBand Roformer ID 48, opt 11 = becruily deux
+    "BS-Roformer HyperACE (unwa)": (40, 142, 2),        # BS Roformer ID 40, opt 142 = HyperACE v2 instrum
+    # 2: Keep backing vocals
+    "BS-RoFormer Kar (anvuew)": (49, 7, 0),             # MVSep Karaoke ID 49, opt 7 = BS Roformer anvuew
+    "BS-RoFormer Kar (frazer & becruily)": (49, 5, 0),  # MVSep Karaoke ID 49, opt 5 = BS Roformer frazer & becruily
+    "Mel-RoFormer Kar by becruily": (49, 1, 0),          # MVSep Karaoke ID 49, opt 1 = MelBand becruily
+    # 3: Extract backing vocals
+    "Mel-RoFormer Lead/Back": (49, 0, 1),               # MVSep Karaoke ID 49, opt 0 = Mel-Roformer, opt 2 = 1 (Extract vocals first)
+    # 4: Bass
+    "BS-RoFormer": (41, 0, 0),                          # MVSep Bass ID 41, opt 0 = BS Roformer, opt 2 = 0
+    # 5: Drums
+    "Mel-RoFormer": (44, 1, 0)                          # MVSep Drums ID 44, opt 1 = MelBand Roformer, opt 2 = 0
+}
+
+# Formats: 0 = MP3 (320kbps), 1 = WAV (16-bit uncompressed)
+FORMATS = [
+    "WAV (Lossless)",
+    "MP3 (320 kbps)"
+]
+FORMAT_MAP = {
+    "WAV (Lossless)": "1",
+    "MP3 (320 kbps)": "0"
+}
+
+LANGUAGES = ["Bahasa Indonesia", "English"]
+LANG_MAP = {"Bahasa Indonesia": "id", "English": "en"}
+REV_LANG_MAP = {"id": "Bahasa Indonesia", "en": "English"}
+
+TEXTS = {
+    "id": {
+        "dialog_title": "NVDA Vocal Remover (BS-Roformer / Mel-Roformer)",
+        "file_label": "&Pilih File Audio (MP3, WAV, FLAC, M4A, OGG):",
+        "browse": "&Telusuri...",
+        "cat_label": "&Kategori Pemisahan:",
+        "model_label": "&Pilihan Model AI:",
+        "token_label": "MVSEP &API Token:",
+        "get_token": "&Dapatkan API Key...",
+        "clear_queue": "&Bersihkan Antrean",
+        "format_label": "&Format Output Hasil:",
+        "lang_label": "&Bahasa / Language:",
+        "output_label": "&Folder Penyimpanan Hasil:",
+        "browse_out": "Pilih &Folder...",
+        "check_update": "&Periksa Pembaruan...",
+        "start_btn": "&Pisahkan Vokal (Mulai)",
+        "cancel_btn": "&Batal",
+        "select_file_dlg": "Pilih File Audio",
+        "select_folder_dlg": "Pilih Folder Hasil",
+        "err_no_file": "Error: File audio belum dipilih atau tidak ditemukan.",
+        "err_empty_file": "Error: File audio kosong (0 bytes) atau rusak.",
+        "err_no_token": "Perhatian: Masukkan API Token MVSEP gratis Anda agar pemrosesan model SOTA berjalan.",
+        "uploading": "Mengunggah {filename} menggunakan model {model_name} (Format: {out_format}). Mohon tunggu...",
+        "upload_done": "Audio berhasil diunggah. Menunggu respons antrean server...",
+        "turn_arrived": "Giliran tiba! Lagu Anda berhasil masuk ke antrean server.",
+        "waiting_turn": "Menunggu giliran otomatis...",
+        "server_processing": "AI sedang memproses pemisahan audio di GPU...",
+        "stage_merging": "Tahap {status}: menyatukan hasil audio...",
+        "sep_failed": "Pemisahan gagal: {reason}",
+        "sep_done": "Pemisahan selesai! Memulai proses unduhan hasil...",
+        "timeout": "Waktu pemrosesan melebihi batas atau server tidak merespons.",
+        "downloading_stem": "Mengunduh stem {idx} dari {total}: {stem}...",
+        "all_saved": "Berhasil! Semua stem tersimpan di folder: {out_dir}",
+        "checking_queue": "Memeriksa dan membersihkan antrean di server...",
+        "queue_cleared": "Berhasil membatalkan {count} file dari antrean server.",
+        "queue_empty": "Antrean server sudah kosong dan bersih.",
+        "checking_update": "Memeriksa pembaruan di GitHub...",
+        "update_available": "Versi baru {version} tersedia!\n\nCatatan rilis:\n{body}\n\nApakah Anda ingin mengunduh dan memperbarui sekarang?",
+        "update_title": "Pembaruan Add-on Tersedia",
+        "update_latest": "NVDAVocalRemover sudah menggunakan versi terbaru (v{version}).",
+        "update_downloading": "Sedang mengunduh pembaruan versi {version}...",
+        "update_err": "Gagal memeriksa pembaruan: {error}",
+        "update_no_repo": "Belum ada rilis baru di repositori GitHub.",
+        "open_token_page": "Membuka halaman API Token MVSEP di browser..."
+    },
+    "en": {
+        "dialog_title": "NVDA Vocal Remover (BS-Roformer / Mel-Roformer)",
+        "file_label": "&Select Audio File (MP3, WAV, FLAC, M4A, OGG):",
+        "browse": "&Browse...",
+        "cat_label": "&Separation Category:",
+        "model_label": "&AI Model Selection:",
+        "token_label": "MVSEP &API Token:",
+        "get_token": "&Get API Key...",
+        "clear_queue": "&Clear Queue",
+        "format_label": "&Output Format:",
+        "lang_label": "&Bahasa / Language:",
+        "output_label": "&Output Folder:",
+        "browse_out": "Select &Folder...",
+        "check_update": "&Check for Updates...",
+        "start_btn": "&Separate Vocals (Start)",
+        "cancel_btn": "&Cancel",
+        "select_file_dlg": "Select Audio File",
+        "select_folder_dlg": "Select Output Folder",
+        "err_no_file": "Error: No audio file selected or file not found.",
+        "err_empty_file": "Error: Audio file is empty (0 bytes) or corrupted.",
+        "err_no_token": "Warning: Please enter your free MVSEP API Token to process SOTA models.",
+        "uploading": "Uploading {filename} using model {model_name} (Format: {out_format}). Please wait...",
+        "upload_done": "Audio uploaded successfully. Awaiting server queue response...",
+        "turn_arrived": "Your turn has arrived! Your audio has entered the server queue.",
+        "waiting_turn": "Waiting for turn automatically...",
+        "server_processing": "AI is processing audio separation on GPU...",
+        "stage_merging": "Stage {status}: merging audio stems...",
+        "sep_failed": "Separation failed: {reason}",
+        "sep_done": "Separation complete! Starting stem downloads...",
+        "timeout": "Processing timed out or server did not respond.",
+        "downloading_stem": "Downloading stem {idx} of {total}: {stem}...",
+        "all_saved": "Success! All stems saved in folder: {out_dir}",
+        "checking_queue": "Checking and clearing queue on server...",
+        "queue_cleared": "Successfully cancelled {count} file(s) from server queue.",
+        "queue_empty": "Server queue is already empty.",
+        "checking_update": "Checking for updates on GitHub...",
+        "update_available": "A new version {version} is available!\n\nRelease notes:\n{body}\n\nWould you like to download and install it now?",
+        "update_title": "Add-on Update Available",
+        "update_latest": "NVDAVocalRemover is up to date (v{version}).",
+        "update_downloading": "Downloading update version {version}...",
+        "update_err": "Failed to check for updates: {error}",
+        "update_no_repo": "No new releases found on GitHub repository.",
+        "open_token_page": "Opening MVSEP API Token page in browser..."
+    }
+}
+
+def load_config():
+    if not os.path.exists(CONFIG_DIR):
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        "api_token": "",
+        "category": "1: Music and vocals",
+        "model": "Mel-Roformer deux (becruily)",
+        "format": "WAV (Lossless)",
+        "language": "id",
+        "output_dir": DEFAULT_OUT_DIR
+    }
+
+def save_config(cfg):
+    if not os.path.exists(CONFIG_DIR):
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        json.dump(cfg, f, indent=2)
+
+def encode_multipart(fields, files):
+    boundary = uuid.uuid4().hex
+    crlf = b"\r\n"
+    lines = []
+    for (k, v) in fields.items():
+        lines.append(f"--{boundary}".encode())
+        lines.append(f'Content-Disposition: form-data; name="{k}"'.encode())
+        lines.append(b"")
+        lines.append(str(v).encode('utf-8'))
+    for (k, filepath) in files.items():
+        filename = os.path.basename(filepath).replace('"', '_')
+        mime = mimetypes.guess_type(filepath)[0] or 'application/octet-stream'
+        lines.append(f"--{boundary}".encode())
+        lines.append(f'Content-Disposition: form-data; name="{k}"; filename="{filename}"'.encode('utf-8'))
+        lines.append(f'Content-Type: {mime}'.encode())
+        lines.append(b"")
+        with open(filepath, 'rb') as f:
+            lines.append(f.read())
+    lines.append(f"--{boundary}--".encode())
+    lines.append(b"")
+    body = crlf.join(lines)
+    content_type = f"multipart/form-data; boundary={boundary}"
+    return content_type, body
+
+def get_clean_stem_name(stem_type, category):
+    s = str(stem_type or "").lower().strip()
+    cat = category.lower()
+    if "bass" in s:
+        return "Bass"
+    elif "drum" in s:
+        return "Drums"
+    elif "back" in s and ("instrum" in s or "music" in s or "+" in s or "track" in s):
+        return "Backing Track with BV"
+    elif "lead" in s:
+        return "Lead Vocals"
+    elif "back" in s:
+        return "Backing Vocals"
+    elif "only" in s and "instrum" in s:
+        return "Instrumental only"
+    elif "vocal" in s:
+        return "Vocals"
+    elif "other" in s or "instrum" in s or "music" in s:
+        if "keep backing" in cat:
+            return "Backing Track with BV"
+        elif "extract backing" in cat:
+            return "Instrumental only"
+        elif "bass" in cat:
+            return "Instrumental (no Bass)"
+        elif "drum" in cat:
+            return "Instrumental (no Drums)"
+        return "Instrumental"
+    else:
+        return stem_type if stem_type else "Audio"
+
+def cancel_active_queue(api_token):
+    if not api_token:
+        return 0
+    user_url = f"https://mvsep.com/api/app/user?api_token={api_token}"
+    req = urllib.request.Request(user_url, headers={"User-Agent": "Mozilla/5.0"})
+    cancelled = 0
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            queue = data.get("data", {}).get("current_queue", [])
+            for h in queue:
+                post_data = urllib.parse.urlencode({"api_token": api_token, "hash": h}).encode()
+                req_cancel = urllib.request.Request("https://mvsep.com/api/separation/cancel", data=post_data, headers={"User-Agent": "Mozilla/5.0"}, method="POST")
+                try:
+                    with urllib.request.urlopen(req_cancel, timeout=15) as c_resp:
+                        cancelled += 1
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return cancelled
+
+def check_for_updates(current_version, lang="id"):
+    txt = TEXTS.get(lang, TEXTS["id"])
+    ui.message(txt["checking_update"])
+    try:
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            rel = json.loads(resp.read().decode('utf-8'))
+
+        tag = rel.get("tag_name", "").lstrip("v").strip()
+        body = rel.get("body", "").strip() or "Pembaruan performa dan perbaikan bug."
+        
+        def parse_v(v_str):
+            nums = [int(x) for x in re.findall(r'\d+', str(v_str))]
+            return nums or [0]
+
+        if parse_v(tag) > parse_v(current_version):
+            addon_url = None
+            for asset in rel.get("assets", []):
+                if asset.get("name", "").endswith(".nvda-addon"):
+                    addon_url = asset.get("browser_download_url")
+                    break
+            if not addon_url:
+                addon_url = f"https://github.com/{GITHUB_REPO}/releases/download/v{tag}/NVDAVocalRemover.nvda-addon"
+
+            def prompt_and_install():
+                msg = txt["update_available"].format(version=tag, body=body)
+                title = txt["update_title"]
+                dlg = wx.MessageDialog(gui.mainFrame, msg, title, wx.YES_NO | wx.ICON_QUESTION)
+                if dlg.ShowModal() == wx.ID_YES:
+                    ui.message(txt["update_downloading"].format(version=tag))
+                    temp_dir = tempfile.gettempdir()
+                    target_file = os.path.join(temp_dir, f"NVDAVocalRemover_{tag}.nvda-addon")
+                    urllib.request.urlretrieve(addon_url, target_file)
+                    os.startfile(target_file)
+                dlg.Destroy()
+            wx.CallAfter(prompt_and_install)
+        else:
+            ui.message(txt["update_latest"].format(version=current_version))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            ui.message(txt["update_no_repo"])
+        else:
+            ui.message(txt["update_err"].format(error=f"HTTP {e.code}"))
+    except Exception as e:
+        ui.message(txt["update_err"].format(error=str(e)))
+
+
+class VocalRemoverDialog(wx.Dialog):
+    def __init__(self, parent):
+        self.config = load_config()
+        self.lang = self.config.get("language", "id")
+        if self.lang not in TEXTS:
+            self.lang = "id"
+        txt = TEXTS[self.lang]
+
+        super(VocalRemoverDialog, self).__init__(parent, title=txt["dialog_title"])
+
+        mainSizer = wx.BoxSizer(wx.VERTICAL)
+
+        # File selection
+        self.lbl_file = wx.StaticText(self, label=txt["file_label"])
+        mainSizer.Add(self.lbl_file, 0, wx.ALL, 8)
+
+        fileSizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.filePathInput = wx.TextCtrl(self)
+        fileSizer.Add(self.filePathInput, 1, wx.EXPAND | wx.RIGHT, 5)
+
+        self.browseBtn = wx.Button(self, label=txt["browse"])
+        self.browseBtn.Bind(wx.EVT_BUTTON, self.onBrowse)
+        fileSizer.Add(self.browseBtn, 0)
+        mainSizer.Add(fileSizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+
+        # Category choice
+        self.lbl_cat = wx.StaticText(self, label=txt["cat_label"])
+        self.catCombo = wx.ComboBox(self, choices=CATEGORIES, style=wx.CB_READONLY)
+        cur_cat = self.config.get("category", CATEGORIES[0])
+        if cur_cat not in CATEGORIES:
+            cur_cat = CATEGORIES[0]
+        self.catCombo.SetSelection(CATEGORIES.index(cur_cat))
+        self.catCombo.Bind(wx.EVT_COMBOBOX, self.onCategoryChange)
+        mainSizer.Add(self.lbl_cat, 0, wx.ALL, 8)
+        mainSizer.Add(self.catCombo, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+
+        # Model choice
+        self.lbl_model = wx.StaticText(self, label=txt["model_label"])
+        self.modelCombo = wx.ComboBox(self, choices=[], style=wx.CB_READONLY)
+        mainSizer.Add(self.lbl_model, 0, wx.ALL, 8)
+        mainSizer.Add(self.modelCombo, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+        self.updateModelList(cur_cat, self.config.get("model", ""))
+
+        # MVSEP API Token (Password masked & Get Token button)
+        self.lbl_token = wx.StaticText(self, label=txt["token_label"])
+        mainSizer.Add(self.lbl_token, 0, wx.ALL, 8)
+
+        tokenSizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.tokenInput = wx.TextCtrl(self, value=self.config.get("api_token", ""), style=wx.TE_PASSWORD)
+        tokenSizer.Add(self.tokenInput, 1, wx.EXPAND | wx.RIGHT, 5)
+
+        self.getTokenBtn = wx.Button(self, label=txt["get_token"])
+        self.getTokenBtn.Bind(wx.EVT_BUTTON, self.onGetToken)
+        tokenSizer.Add(self.getTokenBtn, 0, wx.RIGHT, 5)
+
+        self.clearQueueBtn = wx.Button(self, label=txt["clear_queue"])
+        self.clearQueueBtn.Bind(wx.EVT_BUTTON, self.onClearQueue)
+        tokenSizer.Add(self.clearQueueBtn, 0)
+        mainSizer.Add(tokenSizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+
+        # Output Format choice (WAV vs MP3)
+        self.lbl_fmt = wx.StaticText(self, label=txt["format_label"])
+        self.formatCombo = wx.ComboBox(self, choices=FORMATS, style=wx.CB_READONLY)
+        cur_fmt = self.config.get("format", FORMATS[0])
+        if cur_fmt not in FORMATS:
+            cur_fmt = FORMATS[0]
+        self.formatCombo.SetSelection(FORMATS.index(cur_fmt))
+        mainSizer.Add(self.lbl_fmt, 0, wx.ALL, 8)
+        mainSizer.Add(self.formatCombo, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+
+        # Language choice (Indonesian vs English)
+        self.lbl_lang = wx.StaticText(self, label=txt["lang_label"])
+        self.langCombo = wx.ComboBox(self, choices=LANGUAGES, style=wx.CB_READONLY)
+        cur_lang_str = REV_LANG_MAP.get(self.lang, LANGUAGES[0])
+        self.langCombo.SetSelection(LANGUAGES.index(cur_lang_str))
+        self.langCombo.Bind(wx.EVT_COMBOBOX, self.onLanguageChange)
+        mainSizer.Add(self.lbl_lang, 0, wx.ALL, 8)
+        mainSizer.Add(self.langCombo, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+
+        # Output Folder
+        self.lbl_out = wx.StaticText(self, label=txt["output_label"])
+        mainSizer.Add(self.lbl_out, 0, wx.ALL, 8)
+        outSizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.outDirInput = wx.TextCtrl(self, value=self.config.get("output_dir", DEFAULT_OUT_DIR))
+        outSizer.Add(self.outDirInput, 1, wx.EXPAND | wx.RIGHT, 5)
+        self.browseOutBtn = wx.Button(self, label=txt["browse_out"])
+        self.browseOutBtn.Bind(wx.EVT_BUTTON, self.onBrowseOut)
+        outSizer.Add(self.browseOutBtn, 0)
+        mainSizer.Add(outSizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+
+        # Action Buttons (Check Update, Start, Cancel)
+        btnSizer = wx.BoxSizer(wx.HORIZONTAL)
+        
+        self.checkUpdateBtn = wx.Button(self, label=txt["check_update"])
+        self.checkUpdateBtn.Bind(wx.EVT_BUTTON, self.onCheckUpdate)
+        btnSizer.Add(self.checkUpdateBtn, 0, wx.RIGHT, 15)
+
+        self.processBtn = wx.Button(self, label=txt["start_btn"])
+        self.processBtn.Bind(wx.EVT_BUTTON, self.onProcess)
+        self.processBtn.SetDefault()
+        btnSizer.Add(self.processBtn, 0, wx.RIGHT, 10)
+
+        self.cancelBtn = wx.Button(self, wx.ID_CANCEL, label=txt["cancel_btn"])
+        btnSizer.Add(self.cancelBtn, 0)
+
+        mainSizer.Add(btnSizer, 0, wx.ALIGN_RIGHT | wx.ALL, 12)
+
+        self.SetSizer(mainSizer)
+        mainSizer.Fit(self)
+        self.CenterOnScreen()
+
+    def apply_language(self, lang):
+        t = TEXTS.get(lang, TEXTS["id"])
+        self.SetTitle(t["dialog_title"])
+        self.lbl_file.SetLabel(t["file_label"])
+        self.browseBtn.SetLabel(t["browse"])
+        self.lbl_cat.SetLabel(t["cat_label"])
+        self.lbl_model.SetLabel(t["model_label"])
+        self.lbl_token.SetLabel(t["token_label"])
+        self.getTokenBtn.SetLabel(t["get_token"])
+        self.clearQueueBtn.SetLabel(t["clear_queue"])
+        self.lbl_fmt.SetLabel(t["format_label"])
+        self.lbl_lang.SetLabel(t["lang_label"])
+        self.lbl_out.SetLabel(t["output_label"])
+        self.browseOutBtn.SetLabel(t["browse_out"])
+        self.checkUpdateBtn.SetLabel(t["check_update"])
+        self.processBtn.SetLabel(t["start_btn"])
+        self.cancelBtn.SetLabel(t["cancel_btn"])
+        self.Layout()
+
+    def onLanguageChange(self, evt):
+        sel = self.langCombo.GetStringSelection()
+        self.lang = LANG_MAP.get(sel, "id")
+        self.config["language"] = self.lang
+        save_config(self.config)
+        self.apply_language(self.lang)
+        ui.message("Bahasa diubah ke Bahasa Indonesia" if self.lang == "id" else "Language changed to English")
+
+    def onCheckUpdate(self, evt):
+        threading.Thread(target=check_for_updates, args=(CURRENT_VERSION, self.lang), daemon=True).start()
+
+    def updateModelList(self, category, preferred_model=""):
+        models = MODELS_PER_CAT.get(category, [])
+        self.modelCombo.Clear()
+        for m in models:
+            self.modelCombo.Append(m)
+        if preferred_model in models:
+            self.modelCombo.SetSelection(models.index(preferred_model))
+        elif models:
+            self.modelCombo.SetSelection(0)
+
+    def onCategoryChange(self, evt):
+        selected_cat = self.catCombo.GetStringSelection()
+        self.updateModelList(selected_cat)
+
+    def onGetToken(self, evt):
+        webbrowser.open("https://mvsep.com/user-api")
+        t = TEXTS.get(self.lang, TEXTS["id"])
+        ui.message(t["open_token_page"])
+
+    def onClearQueue(self, evt):
+        t = TEXTS.get(self.lang, TEXTS["id"])
+        api_token = self.tokenInput.GetValue().strip()
+        if not api_token:
+            ui.message(t["err_no_token"])
+            return
+        threading.Thread(target=self._runClearQueue, args=(api_token, self.lang), daemon=True).start()
+
+    def _runClearQueue(self, api_token, lang):
+        t = TEXTS.get(lang, TEXTS["id"])
+        ui.message(t["checking_queue"])
+        count = cancel_active_queue(api_token)
+        if count > 0:
+            ui.message(t["queue_cleared"].format(count=count))
+        else:
+            ui.message(t["queue_empty"])
+
+    def onBrowse(self, evt):
+        t = TEXTS.get(self.lang, TEXTS["id"])
+        wildcard = "Audio Files (*.mp3;*.wav;*.flac;*.m4a;*.ogg)|*.mp3;*.wav;*.flac;*.m4a;*.ogg|All files (*.*)|*.*"
+        dlg = wx.FileDialog(self, t["select_file_dlg"], wildcard=wildcard, style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
+        if dlg.ShowModal() == wx.ID_OK:
+            self.filePathInput.SetValue(dlg.GetPath())
+        dlg.Destroy()
+
+    def onBrowseOut(self, evt):
+        t = TEXTS.get(self.lang, TEXTS["id"])
+        dlg = wx.DirDialog(self, t["select_folder_dlg"], defaultPath=self.outDirInput.GetValue(), style=wx.DD_DEFAULT_STYLE)
+        if dlg.ShowModal() == wx.ID_OK:
+            self.outDirInput.SetValue(dlg.GetPath())
+        dlg.Destroy()
+
+    def onProcess(self, evt):
+        t = TEXTS.get(self.lang, TEXTS["id"])
+        audio_file = self.filePathInput.GetValue().strip()
+        category = self.catCombo.GetStringSelection()
+        model_name = self.modelCombo.GetStringSelection()
+        api_token = self.tokenInput.GetValue().strip()
+        out_format = self.formatCombo.GetStringSelection()
+        out_dir = self.outDirInput.GetValue().strip()
+
+        if not audio_file or not os.path.isfile(audio_file):
+            ui.message(t["err_no_file"])
+            return
+
+        try:
+            if os.path.getsize(audio_file) == 0:
+                ui.message(t["err_empty_file"])
+                return
+        except Exception:
+            pass
+
+        if not api_token:
+            ui.message(t["err_no_token"])
+            return
+
+        self.config["category"] = category
+        self.config["model"] = model_name
+        self.config["api_token"] = api_token
+        self.config["format"] = out_format
+        self.config["language"] = self.lang
+        self.config["output_dir"] = out_dir
+        save_config(self.config)
+
+        self.Close()
+
+        threading.Thread(
+            target=self.run_mvsep_separation,
+            args=(audio_file, category, model_name, api_token, out_format, out_dir, self.lang),
+            daemon=True
+        ).start()
+
+    def run_mvsep_separation(self, audio_file, category, model_name, api_token, out_format, out_dir, lang):
+        t = TEXTS.get(lang, TEXTS["id"])
+        os.makedirs(out_dir, exist_ok=True)
+        filename = os.path.basename(audio_file)
+        base_name, _ = os.path.splitext(filename)
+
+        cfg_params = MVSEP_CONFIG.get(model_name)
+        if not cfg_params:
+            ui.message(f"Error: Konfigurasi model {model_name} tidak ditemukan.")
+            return
+
+        sep_type, add_opt1, add_opt2 = cfg_params
+        output_format_code = FORMAT_MAP.get(out_format, "1")
+
+        ui.message(t["uploading"].format(filename=filename, model_name=model_name, out_format=out_format))
+        try:
+            winsound.Beep(880, 150)
+        except Exception:
+            pass
+
+        try:
+            create_url = "https://mvsep.com/api/separation/create"
+            fields = {
+                "api_token": api_token,
+                "sep_type": str(sep_type),
+                "add_opt1": str(add_opt1),
+                "add_opt2": str(add_opt2),
+                "output_format": output_format_code,
+                "is_demo": "0"
+            }
+            files = {"audiofile": audio_file}
+            content_type, body = encode_multipart(fields, files)
+
+            req = urllib.request.Request(
+                create_url,
+                data=body,
+                headers={"Content-Type": content_type, "User-Agent": "Mozilla/5.0"},
+                method="POST"
+            )
+
+            resp_json = None
+            max_wait_attempts = 120
+            last_queue_announced = 0
+
+            for attempt in range(max_wait_attempts):
+                try:
+                    with urllib.request.urlopen(req, timeout=180) as resp:
+                        resp_json = json.loads(resp.read().decode('utf-8'))
+                    if attempt > 0:
+                        ui.message(t["turn_arrived"])
+                        try:
+                            winsound.Beep(880, 150)
+                        except Exception:
+                            pass
+                    break
+                except urllib.error.HTTPError as e:
+                    raw_err = e.read().decode('utf-8', errors='ignore')
+                    if "unprocessed file in queue" in raw_err.lower():
+                        now_ts = time.time()
+                        try:
+                            winsound.Beep(587, 60)
+                        except Exception:
+                            pass
+
+                        order_info = ""
+                        try:
+                            u_req = urllib.request.Request(f"https://mvsep.com/api/app/user?api_token={api_token}", headers={"User-Agent": "Mozilla/5.0"})
+                            with urllib.request.urlopen(u_req, timeout=10) as u_resp:
+                                u_data = json.loads(u_resp.read().decode('utf-8'))
+                                q_list = u_data.get("data", {}).get("current_queue", [])
+                                if q_list:
+                                    active_hash = q_list[0]
+                                    q_req = urllib.request.Request(f"https://mvsep.com/api/separation/get?hash={active_hash}&api_token={api_token}", headers={"User-Agent": "Mozilla/5.0"})
+                                    with urllib.request.urlopen(q_req, timeout=10) as q_resp:
+                                        q_data = json.loads(q_resp.read().decode('utf-8'))
+                                        stat = q_data.get("status")
+                                        d_info = q_data.get("data", {})
+                                        if stat == "waiting":
+                                            c_ord = d_info.get("current_order")
+                                            order_info = f"Antrian {c_ord}" if c_ord is not None else ("Dalam antrian" if lang == "id" else "In queue")
+                                        elif stat == "processing":
+                                            order_info = "Sedang diproses di GPU" if lang == "id" else "Processing on GPU"
+                        except Exception:
+                            pass
+
+                        if (now_ts - last_queue_announced) >= 15 or attempt == 0:
+                            if order_info:
+                                ui.message(order_info)
+                            else:
+                                ui.message(t["waiting_turn"])
+                            last_queue_announced = now_ts
+
+                        time.sleep(5)
+                        continue
+                    else:
+                        detail = ""
+                        try:
+                            err_json = json.loads(raw_err)
+                            detail = err_json.get("message") or err_json.get("data", {}).get("message")
+                            if not detail and err_json.get("errors"):
+                                detail = ", ".join(str(x) for x in err_json.get("errors"))
+                        except Exception:
+                            pass
+                        if detail:
+                            ui.message(f"Error server: {detail}")
+                        else:
+                            ui.message(f"Error server: HTTP {e.code}")
+                        return
+
+            if not resp_json or not resp_json.get("success"):
+                err_msg = resp_json.get("message") if resp_json else "Gagal membuat tugas pemisahan."
+                if not err_msg and resp_json:
+                    err_msg = resp_json.get("data", {}).get("message", "Gagal membuat tugas pemisahan.")
+                ui.message(f"Gagal: {err_msg}")
+                return
+
+            task_hash = resp_json.get("data", {}).get("hash")
+            if not task_hash:
+                ui.message("Gagal mendapatkan kode tugas pemisahan dari server.")
+                return
+
+            ui.message(t["upload_done"])
+            try:
+                winsound.Beep(988, 120)
+            except Exception:
+                pass
+
+            get_url = f"https://mvsep.com/api/separation/get?hash={task_hash}&api_token={api_token}"
+            download_files = None
+            last_status = None
+            last_order = None
+            last_announced_time = 0
+
+            for i in range(240):
+                time.sleep(5)
+                get_req = urllib.request.Request(get_url, headers={"User-Agent": "Mozilla/5.0"})
+                try:
+                    with urllib.request.urlopen(get_req, timeout=30) as g_resp:
+                        g_json = json.loads(g_resp.read().decode('utf-8'))
+                except Exception:
+                    continue
+
+                status = g_json.get("status")
+                data_obj = g_json.get("data", {})
+
+                if status == "failed":
+                    fail_reason = data_obj.get("message") or "Pemisahan gagal di server."
+                    try:
+                        winsound.Beep(440, 300)
+                    except Exception:
+                        pass
+                    ui.message(t["sep_failed"].format(reason=fail_reason))
+                    return
+
+                if status == "done":
+                    download_files = data_obj.get("files", [])
+                    try:
+                        winsound.Beep(1046, 120)
+                        winsound.Beep(1318, 150)
+                    except Exception:
+                        pass
+                    ui.message(t["sep_done"])
+                    break
+
+                now_ts = time.time()
+                if status == "waiting":
+                    try:
+                        winsound.Beep(587, 60)
+                    except Exception:
+                        pass
+                    cur_order = data_obj.get("current_order")
+                    order_str = f"Antrian {cur_order}" if cur_order is not None else ("Dalam antrian" if lang == "id" else "In queue")
+                    
+                    if cur_order != last_order or (now_ts - last_announced_time) >= 15:
+                        ui.message(order_str)
+                        last_order = cur_order
+                        last_announced_time = now_ts
+                    last_status = status
+
+                elif status == "processing":
+                    if last_status != "processing" or (now_ts - last_announced_time) >= 15:
+                        ui.message(t["server_processing"])
+                        try:
+                            winsound.Beep(659, 80)
+                        except Exception:
+                            pass
+                        last_announced_time = now_ts
+                    last_status = status
+
+                elif status in ("distributing", "merging"):
+                    if last_status != status or (now_ts - last_announced_time) >= 15:
+                        ui.message(t["stage_merging"].format(status=status))
+                        last_announced_time = now_ts
+                    last_status = status
+
+            if not download_files:
+                ui.message(t["timeout"])
+                return
+
+            for idx, item in enumerate(download_files, 1):
+                f_url = item.get("link") or item.get("url")
+                raw_type = item.get("type") or item.get("download") or (os.path.basename(f_url.split("?")[0]) if f_url else "")
+
+                ext = os.path.splitext(f_url.split("?")[0])[1] if f_url else ""
+                if not ext:
+                    ext = ".mp3" if "MP3" in out_format else ".wav"
+
+                clean_stem = get_clean_stem_name(raw_type, category)
+                target_filename = f"{base_name} ({clean_stem}) ({model_name}){ext}"
+                target_file_path = os.path.join(out_dir, target_filename)
+
+                ui.message(t["downloading_stem"].format(idx=idx, total=len(download_files), stem=clean_stem))
+                if f_url:
+                    urllib.request.urlretrieve(f_url, target_file_path)
+
+            try:
+                winsound.Beep(1320, 200)
+                winsound.Beep(1760, 250)
+            except Exception:
+                pass
+
+            ui.message(t["all_saved"].format(out_dir=out_dir))
+            os.startfile(out_dir)
+
+        except urllib.error.HTTPError as e:
+            detail = ""
+            try:
+                raw_err = e.read().decode('utf-8', errors='ignore')
+                err_json = json.loads(raw_err)
+                detail = err_json.get("message") or err_json.get("data", {}).get("message")
+                if not detail and err_json.get("errors"):
+                    detail = ", ".join(str(x) for x in err_json.get("errors"))
+            except Exception:
+                pass
+            if detail:
+                ui.message(f"Error server: {detail}")
+            else:
+                ui.message(f"Error server: HTTP {e.code}")
+        except urllib.error.URLError as e:
+            ui.message(f"Koneksi internet bermasalah: {e.reason}")
+        except Exception as e:
+            ui.message(f"Terjadi kesalahan: {e}")
+
+
+class GlobalPlugin(globalPluginHandler.GlobalPlugin):
+    @script(
+        description="Membuka dialog NVDA Vocal Remover (BS-Roformer)",
+        category="Audio",
+        gesture="kb:NVDA+shift+x"
+    )
+    def script_openVocalRemover(self, gesture):
+        wx.CallAfter(self._showDialog)
+
+    def _showDialog(self):
+        gui_main = gui.mainFrame
+        d = VocalRemoverDialog(gui_main)
+        d.ShowModal()
+        d.Destroy()
