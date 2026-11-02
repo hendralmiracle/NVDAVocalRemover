@@ -131,13 +131,13 @@ TEXTS = {
         "checking_queue": "Memeriksa dan membersihkan antrean di server...",
         "queue_cleared": "Berhasil membatalkan {count} file dari antrean server.",
         "queue_empty": "Antrean server sudah kosong dan bersih.",
-        "checking_update": "Memeriksa pembaruan di GitHub...",
+        "checking_update": "Memeriksa pembaruan...",
         "update_available": "Versi baru {version} tersedia!\n\nCatatan rilis:\n{body}\n\nApakah Anda ingin mengunduh dan memperbarui sekarang?",
         "update_title": "Pembaruan Add-on Tersedia",
         "update_latest": "NVDAVocalRemover sudah menggunakan versi terbaru (v{version}).",
         "update_downloading": "Sedang mengunduh pembaruan versi {version}...",
         "update_err": "Gagal memeriksa pembaruan: {error}",
-        "update_no_repo": "Belum ada rilis baru di repositori GitHub.",
+        "update_no_repo": "Belum ada rilis pembaruan baru.",
         "open_token_page": "Membuka halaman API Token MVSEP di browser..."
     },
     "en": {
@@ -175,13 +175,13 @@ TEXTS = {
         "checking_queue": "Checking and clearing queue on server...",
         "queue_cleared": "Successfully cancelled {count} file(s) from server queue.",
         "queue_empty": "Server queue is already empty.",
-        "checking_update": "Checking for updates on GitHub...",
+        "checking_update": "Checking for updates...",
         "update_available": "A new version {version} is available!\n\nRelease notes:\n{body}\n\nWould you like to download and install it now?",
         "update_title": "Add-on Update Available",
         "update_latest": "NVDAVocalRemover is up to date (v{version}).",
         "update_downloading": "Downloading update version {version}...",
         "update_err": "Failed to check for updates: {error}",
-        "update_no_repo": "No new releases found on GitHub repository.",
+        "update_no_repo": "No new releases found.",
         "open_token_page": "Opening MVSEP API Token page in browser..."
     }
 }
