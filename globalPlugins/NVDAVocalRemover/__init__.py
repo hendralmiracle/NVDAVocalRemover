@@ -27,7 +27,7 @@ import addonHandler
 
 addonHandler.initTranslation()
 
-CURRENT_VERSION = "1.1.0"
+CURRENT_VERSION = "1.1.1"
 GITHUB_REPO = "hendralmiracle/NVDAVocalRemover"
 
 CONFIG_DIR = os.path.join(os.environ.get('APPDATA', ''), 'NVDAVocalRemover')
@@ -98,8 +98,7 @@ REV_LANG_MAP = {"id": "Bahasa Indonesia", "en": "English"}
 TEXTS = {
     "id": {
         "dialog_title": "NVDA Vocal Remover (BS-Roformer / Mel-Roformer)",
-        "file_label": "&Pilih File Audio (MP3, WAV, FLAC, M4A, OGG):",
-        "browse": "&Telusuri...",
+        "browse": "&Browse (Pilih Lagu)...",
         "cat_label": "&Kategori Pemisahan:",
         "model_label": "&Pilihan Model AI:",
         "token_label": "MVSEP &API Token:",
@@ -109,12 +108,12 @@ TEXTS = {
         "lang_label": "&Bahasa / Language:",
         "output_label": "&Folder Penyimpanan Hasil:",
         "browse_out": "Pilih &Folder...",
-        "check_update": "&Periksa Pembaruan...",
+        "check_update": "&Cek Pembaruan...",
         "start_btn": "&Pisahkan Vokal (Mulai)",
         "cancel_btn": "&Batal",
-        "select_file_dlg": "Pilih File Audio",
+        "select_file_dlg": "Pilih File Audio (MP3, WAV, FLAC, M4A, OGG)",
         "select_folder_dlg": "Pilih Folder Hasil",
-        "err_no_file": "Error: File audio belum dipilih atau tidak ditemukan.",
+        "err_no_file": "Error: File audio belum dipilih. Silakan tekan tombol Browse.",
         "err_empty_file": "Error: File audio kosong (0 bytes) atau rusak.",
         "err_no_token": "Perhatian: Masukkan API Token MVSEP gratis Anda agar pemrosesan model SOTA berjalan.",
         "uploading": "Mengunggah {filename} menggunakan model {model_name} (Format: {out_format}). Mohon tunggu...",
@@ -138,11 +137,11 @@ TEXTS = {
         "update_downloading": "Sedang mengunduh pembaruan versi {version}...",
         "update_err": "Gagal memeriksa pembaruan: {error}",
         "update_no_repo": "Belum ada rilis pembaruan baru.",
-        "open_token_page": "Membuka halaman API Token MVSEP di browser..."
+        "open_token_page": "Membuka halaman API Token MVSEP di browser...",
+        "file_selected": "Dipilih: {filename}"
     },
     "en": {
         "dialog_title": "NVDA Vocal Remover (BS-Roformer / Mel-Roformer)",
-        "file_label": "&Select Audio File (MP3, WAV, FLAC, M4A, OGG):",
         "browse": "&Browse...",
         "cat_label": "&Separation Category:",
         "model_label": "&AI Model Selection:",
@@ -156,9 +155,9 @@ TEXTS = {
         "check_update": "&Check for Updates...",
         "start_btn": "&Separate Vocals (Start)",
         "cancel_btn": "&Cancel",
-        "select_file_dlg": "Select Audio File",
+        "select_file_dlg": "Select Audio File (MP3, WAV, FLAC, M4A, OGG)",
         "select_folder_dlg": "Select Output Folder",
-        "err_no_file": "Error: No audio file selected or file not found.",
+        "err_no_file": "Error: No audio file selected. Please use the Browse button.",
         "err_empty_file": "Error: Audio file is empty (0 bytes) or corrupted.",
         "err_no_token": "Warning: Please enter your free MVSEP API Token to process SOTA models.",
         "uploading": "Uploading {filename} using model {model_name} (Format: {out_format}). Please wait...",
@@ -182,7 +181,8 @@ TEXTS = {
         "update_downloading": "Downloading update version {version}...",
         "update_err": "Failed to check for updates: {error}",
         "update_no_repo": "No new releases found.",
-        "open_token_page": "Opening MVSEP API Token page in browser..."
+        "open_token_page": "Opening MVSEP API Token page in browser...",
+        "file_selected": "Selected: {filename}"
     }
 }
 
@@ -343,23 +343,25 @@ class VocalRemoverDialog(wx.Dialog):
         txt = TEXTS[self.lang]
 
         super(VocalRemoverDialog, self).__init__(parent, title=txt["dialog_title"])
+        self.selected_file = ""
 
         mainSizer = wx.BoxSizer(wx.VERTICAL)
 
-        # File selection
-        self.lbl_file = wx.StaticText(self, label=txt["file_label"])
-        mainSizer.Add(self.lbl_file, 0, wx.ALL, 8)
+        # 1. Language choice (At the very beginning of the tab order)
+        self.lbl_lang = wx.StaticText(self, label=txt["lang_label"])
+        mainSizer.Add(self.lbl_lang, 0, wx.ALL, 8)
+        self.langCombo = wx.ComboBox(self, choices=LANGUAGES, style=wx.CB_READONLY)
+        cur_lang_str = REV_LANG_MAP.get(self.lang, LANGUAGES[0])
+        self.langCombo.SetSelection(LANGUAGES.index(cur_lang_str))
+        self.langCombo.Bind(wx.EVT_COMBOBOX, self.onLanguageChange)
+        mainSizer.Add(self.langCombo, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
 
-        fileSizer = wx.BoxSizer(wx.HORIZONTAL)
-        self.filePathInput = wx.TextCtrl(self)
-        fileSizer.Add(self.filePathInput, 1, wx.EXPAND | wx.RIGHT, 5)
-
+        # 2. File selection (Browse button only, edit box removed)
         self.browseBtn = wx.Button(self, label=txt["browse"])
         self.browseBtn.Bind(wx.EVT_BUTTON, self.onBrowse)
-        fileSizer.Add(self.browseBtn, 0)
-        mainSizer.Add(fileSizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
+        mainSizer.Add(self.browseBtn, 0, wx.EXPAND | wx.ALL, 8)
 
-        # Category choice
+        # 3. Category choice
         self.lbl_cat = wx.StaticText(self, label=txt["cat_label"])
         self.catCombo = wx.ComboBox(self, choices=CATEGORIES, style=wx.CB_READONLY)
         cur_cat = self.config.get("category", CATEGORIES[0])
@@ -370,14 +372,14 @@ class VocalRemoverDialog(wx.Dialog):
         mainSizer.Add(self.lbl_cat, 0, wx.ALL, 8)
         mainSizer.Add(self.catCombo, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
 
-        # Model choice
+        # 4. Model choice
         self.lbl_model = wx.StaticText(self, label=txt["model_label"])
         self.modelCombo = wx.ComboBox(self, choices=[], style=wx.CB_READONLY)
         mainSizer.Add(self.lbl_model, 0, wx.ALL, 8)
         mainSizer.Add(self.modelCombo, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
         self.updateModelList(cur_cat, self.config.get("model", ""))
 
-        # MVSEP API Token (Password masked & Get Token button)
+        # 5. MVSEP API Token (Password masked & Get Token / Clear Queue buttons)
         self.lbl_token = wx.StaticText(self, label=txt["token_label"])
         mainSizer.Add(self.lbl_token, 0, wx.ALL, 8)
 
@@ -394,7 +396,7 @@ class VocalRemoverDialog(wx.Dialog):
         tokenSizer.Add(self.clearQueueBtn, 0)
         mainSizer.Add(tokenSizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
 
-        # Output Format choice (WAV vs MP3)
+        # 6. Output Format choice (WAV vs MP3)
         self.lbl_fmt = wx.StaticText(self, label=txt["format_label"])
         self.formatCombo = wx.ComboBox(self, choices=FORMATS, style=wx.CB_READONLY)
         cur_fmt = self.config.get("format", FORMATS[0])
@@ -404,16 +406,7 @@ class VocalRemoverDialog(wx.Dialog):
         mainSizer.Add(self.lbl_fmt, 0, wx.ALL, 8)
         mainSizer.Add(self.formatCombo, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
 
-        # Language choice (Indonesian vs English)
-        self.lbl_lang = wx.StaticText(self, label=txt["lang_label"])
-        self.langCombo = wx.ComboBox(self, choices=LANGUAGES, style=wx.CB_READONLY)
-        cur_lang_str = REV_LANG_MAP.get(self.lang, LANGUAGES[0])
-        self.langCombo.SetSelection(LANGUAGES.index(cur_lang_str))
-        self.langCombo.Bind(wx.EVT_COMBOBOX, self.onLanguageChange)
-        mainSizer.Add(self.lbl_lang, 0, wx.ALL, 8)
-        mainSizer.Add(self.langCombo, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
-
-        # Output Folder
+        # 7. Output Folder
         self.lbl_out = wx.StaticText(self, label=txt["output_label"])
         mainSizer.Add(self.lbl_out, 0, wx.ALL, 8)
         outSizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -424,12 +417,8 @@ class VocalRemoverDialog(wx.Dialog):
         outSizer.Add(self.browseOutBtn, 0)
         mainSizer.Add(outSizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 8)
 
-        # Action Buttons (Check Update, Start, Cancel)
+        # 8. Action Buttons (Start, Cancel, and Check Update at the VERY END)
         btnSizer = wx.BoxSizer(wx.HORIZONTAL)
-        
-        self.checkUpdateBtn = wx.Button(self, label=txt["check_update"])
-        self.checkUpdateBtn.Bind(wx.EVT_BUTTON, self.onCheckUpdate)
-        btnSizer.Add(self.checkUpdateBtn, 0, wx.RIGHT, 15)
 
         self.processBtn = wx.Button(self, label=txt["start_btn"])
         self.processBtn.Bind(wx.EVT_BUTTON, self.onProcess)
@@ -437,7 +426,11 @@ class VocalRemoverDialog(wx.Dialog):
         btnSizer.Add(self.processBtn, 0, wx.RIGHT, 10)
 
         self.cancelBtn = wx.Button(self, wx.ID_CANCEL, label=txt["cancel_btn"])
-        btnSizer.Add(self.cancelBtn, 0)
+        btnSizer.Add(self.cancelBtn, 0, wx.RIGHT, 15)
+
+        self.checkUpdateBtn = wx.Button(self, label=txt["check_update"])
+        self.checkUpdateBtn.Bind(wx.EVT_BUTTON, self.onCheckUpdate)
+        btnSizer.Add(self.checkUpdateBtn, 0)
 
         mainSizer.Add(btnSizer, 0, wx.ALIGN_RIGHT | wx.ALL, 12)
 
@@ -448,7 +441,6 @@ class VocalRemoverDialog(wx.Dialog):
     def apply_language(self, lang):
         t = TEXTS.get(lang, TEXTS["id"])
         self.SetTitle(t["dialog_title"])
-        self.lbl_file.SetLabel(t["file_label"])
         self.browseBtn.SetLabel(t["browse"])
         self.lbl_cat.SetLabel(t["cat_label"])
         self.lbl_model.SetLabel(t["model_label"])
@@ -459,9 +451,9 @@ class VocalRemoverDialog(wx.Dialog):
         self.lbl_lang.SetLabel(t["lang_label"])
         self.lbl_out.SetLabel(t["output_label"])
         self.browseOutBtn.SetLabel(t["browse_out"])
-        self.checkUpdateBtn.SetLabel(t["check_update"])
         self.processBtn.SetLabel(t["start_btn"])
         self.cancelBtn.SetLabel(t["cancel_btn"])
+        self.checkUpdateBtn.SetLabel(t["check_update"])
         self.Layout()
 
     def onLanguageChange(self, evt):
@@ -516,7 +508,9 @@ class VocalRemoverDialog(wx.Dialog):
         wildcard = "Audio Files (*.mp3;*.wav;*.flac;*.m4a;*.ogg)|*.mp3;*.wav;*.flac;*.m4a;*.ogg|All files (*.*)|*.*"
         dlg = wx.FileDialog(self, t["select_file_dlg"], wildcard=wildcard, style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST)
         if dlg.ShowModal() == wx.ID_OK:
-            self.filePathInput.SetValue(dlg.GetPath())
+            self.selected_file = dlg.GetPath()
+            fn = os.path.basename(self.selected_file)
+            ui.message(t["file_selected"].format(filename=fn))
         dlg.Destroy()
 
     def onBrowseOut(self, evt):
@@ -528,7 +522,7 @@ class VocalRemoverDialog(wx.Dialog):
 
     def onProcess(self, evt):
         t = TEXTS.get(self.lang, TEXTS["id"])
-        audio_file = self.filePathInput.GetValue().strip()
+        audio_file = self.selected_file.strip()
         category = self.catCombo.GetStringSelection()
         model_name = self.modelCombo.GetStringSelection()
         api_token = self.tokenInput.GetValue().strip()
