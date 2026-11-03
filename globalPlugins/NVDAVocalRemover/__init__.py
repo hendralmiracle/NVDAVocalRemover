@@ -27,27 +27,35 @@ import addonHandler
 
 addonHandler.initTranslation()
 
-CURRENT_VERSION = "1.2.0"
+CURRENT_VERSION = "1.4.0"
 GITHUB_REPO = "hendralmiracle/NVDAVocalRemover"
 
 CONFIG_DIR = os.path.join(os.environ.get('APPDATA', ''), 'NVDAVocalRemover')
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
 DEFAULT_OUT_DIR = os.path.join(os.path.expanduser("~"), "Music", "VocalRemover")
 
-# Categories & Models
+# Categories & Models (Comprehensive X-Minus Pro Vocal Remover set)
 CATEGORIES = [
     "1: Music and vocals",
     "2: Keep backing vocals",
     "3: Extract backing vocals",
     "4: Bass",
     "5: Drums",
-    "6: Guitar"
+    "6: Guitar",
+    "7: Saxophone",
+    "8: Splitter (Multi-stem)",
+    "9: De-echo / De-reverb",
+    "10: De-crowd",
+    "11: Restoration (Denoise & Enhance)",
+    "12: Other (Male / Female Vocals)"
 ]
 
 MODELS_PER_CAT = {
     "1: Music and vocals": [
         "Mel-Roformer deux (becruily)",
-        "BS-Roformer HyperACE (unwa)"
+        "BS-Roformer HyperACE (unwa)",
+        "MDX23C",
+        "BS PolarFormer"
     ],
     "2: Keep backing vocals": [
         "BS-RoFormer Kar (anvuew)",
@@ -55,7 +63,8 @@ MODELS_PER_CAT = {
         "Mel-RoFormer Kar by becruily"
     ],
     "3: Extract backing vocals": [
-        "Mel-RoFormer Lead/Back"
+        "Mel-RoFormer Lead/Back",
+        "Phantom Center (BS-RoFormer)"
     ],
     "4: Bass": [
         "BS-RoFormer"
@@ -64,8 +73,44 @@ MODELS_PER_CAT = {
         "Mel-RoFormer"
     ],
     "6: Guitar": [
-        "Mel-RoFormer",
-        "Mel-RoFormer (Acoustic) β"
+        "BS Roformer SW",
+        "Mel-RoFormer (2024.06)",
+        "Ensemble (BS + Mel Roformer)",
+        "BS-Roformer (viperx)",
+        "Mel-RoFormer (Acoustic) β",
+        "Electric Guitar (Mel-Roformer)",
+        "Lead & Rhythm Guitar (Two-stage)",
+        "Pedal Steel Guitar"
+    ],
+    "7: Saxophone": [
+        "BS-RoFormer",
+        "MelBand Roformer"
+    ],
+    "8: Splitter (Multi-stem)": [
+        "Demucs4 HT (4 stems)",
+        "BS-Roformer SW (6 stems)",
+        "DrumSep (6 stems)"
+    ],
+    "9: De-echo / De-reverb": [
+        "DeReverb stereo (BS-Roformer)",
+        "DeReverb room (BS-Roformer)",
+        "Reverb removal (Mel-Roformer)"
+    ],
+    "10: De-crowd": [
+        "BS-Roformer",
+        "Mel-Roformer"
+    ],
+    "11: Restoration (Denoise & Enhance)": [
+        "DeNoise (aufr33 & gabox)",
+        "Apollo Audio Enhancer",
+        "AudioSR (Super Resolution)"
+    ],
+    "12: Other (Male / Female Vocals)": [
+        "Mel-RoFormer (2025.01) (Beta Version)",
+        "Mel-RoFormer (2025.01) (Acapella only) (Beta Version)",
+        "SCNet XL (Beta Version)",
+        "BS-RoFormer by aufr33 (Beta Version)",
+        "BS-RoFormer by Sucial (Beta Version)"
     ]
 }
 
@@ -74,19 +119,80 @@ MVSEP_CONFIG = {
     # 1: Music and vocals
     ("1: Music and vocals", "Mel-Roformer deux (becruily)"): (48, 11, 2),        # MelBand Roformer ID 48, opt 11 = becruily deux
     ("1: Music and vocals", "BS-Roformer HyperACE (unwa)"): (40, 142, 2),        # BS Roformer ID 40, opt 142 = HyperACE v2 instrum
+    ("1: Music and vocals", "MDX23C"): (25, None, None),
+    ("1: Music and vocals", "BS PolarFormer"): (123, None, None),
+
     # 2: Keep backing vocals
     ("2: Keep backing vocals", "BS-RoFormer Kar (anvuew)"): (49, 7, 0),             # MVSep Karaoke ID 49, opt 7 = BS Roformer anvuew
     ("2: Keep backing vocals", "BS-RoFormer Kar (frazer & becruily)"): (49, 5, 0),  # MVSep Karaoke ID 49, opt 5 = BS Roformer frazer & becruily
     ("2: Keep backing vocals", "Mel-RoFormer Kar by becruily"): (49, 1, 0),          # MVSep Karaoke ID 49, opt 1 = MelBand becruily
+
     # 3: Extract backing vocals
     ("3: Extract backing vocals", "Mel-RoFormer Lead/Back"): (49, 0, 1),               # MVSep Karaoke ID 49, opt 0 = Mel-Roformer, opt 2 = 1 (Extract vocals first)
+    ("3: Extract backing vocals", "Phantom Center (BS-RoFormer)"): (55, 1, None),      # MVSep Phantom Centre ID 55, opt 1 = BS-Roformer by gilliaan
+
     # 4: Bass
     ("4: Bass", "BS-RoFormer"): (41, 0, 0),                          # MVSep Bass ID 41, opt 0 = BS Roformer, opt 2 = 0
+
     # 5: Drums
     ("5: Drums", "Mel-RoFormer"): (44, 1, 0),                         # MVSep Drums ID 44, opt 1 = MelBand Roformer, opt 2 = 0
+
     # 6: Guitar
-    ("6: Guitar", "Mel-RoFormer"): (31, 3, None),                     # MVSep Guitar ID 31, opt 1 = 3 (MelRoformer)
-    ("6: Guitar", "Mel-RoFormer (Acoustic) β"): (66, None, 0),        # MVSep Acoustic Guitar ID 66, opt 2 = 0 (Direct from mixture)
+    ("6: Guitar", "BS Roformer SW"): (31, 7, None),
+    ("6: Guitar", "Mel-RoFormer (2024.06)"): (31, 3, None),
+    ("6: Guitar", "Ensemble (BS + Mel Roformer)"): (31, 6, None),
+    ("6: Guitar", "BS-Roformer (viperx)"): (31, 5, None),
+    ("6: Guitar", "Mel-RoFormer (Acoustic) β"): (66, None, 0),
+    ("6: Guitar", "Electric Guitar (Mel-Roformer)"): (81, None, 0),
+    ("6: Guitar", "Lead & Rhythm Guitar (Two-stage)"): (101, 0, None),
+    ("6: Guitar", "Pedal Steel Guitar"): (124, None, None),
+    ("6: Guitar", "Mel-RoFormer"): (31, 3, None),
+    ("6: Guitar", "BS-Roformer"): (31, 7, None),
+    ("6: Guitar", "BS Roformer SW (SDR: 9.05)"): (31, 7, None),
+
+    # 7: Saxophone
+    ("7: Saxophone", "BS-RoFormer"): (61, 3, None),                   # MVSep Saxophone ID 61, opt 1 = 3 (BS Roformer)
+    ("7: Saxophone", "MelBand Roformer"): (61, 1, None),              # MVSep Saxophone ID 61, opt 1 = 1 (MelBand Roformer)
+
+    # 8: Splitter (Multi-stem)
+    ("8: Splitter (Multi-stem)", "Demucs4 HT (4 stems)"): (20, 0, None),   # Demucs4 HT ID 20, opt 1 = 0 (htdemucs_ft)
+    ("8: Splitter (Multi-stem)", "BS-Roformer SW (6 stems)"): (63, None, None), # BS Roformer SW ID 63 (6 stems)
+    ("8: Splitter (Multi-stem)", "DrumSep (6 stems)"): (37, 7, 0),         # DrumSep ID 37, opt 1 = 7 (MelBand Roformer 6 stems)
+
+    # 9: De-echo / De-reverb
+    ("9: De-echo / De-reverb", "DeReverb stereo (BS-Roformer)"): (22, 7, 1), # Reverb Removal ID 22, opt 1 = 7, opt 2 = 1
+    ("9: De-echo / De-reverb", "DeReverb room (BS-Roformer)"): (22, 6, 1),   # Reverb Removal ID 22, opt 1 = 6, opt 2 = 1
+    ("9: De-echo / De-reverb", "Reverb removal (Mel-Roformer)"): (22, 5, 1), # Reverb Removal ID 22, opt 1 = 5, opt 2 = 1
+
+    # 10: De-crowd
+    ("10: De-crowd", "BS-Roformer"): (34, 2, None),                   # Crowd removal ID 34, opt 1 = 2 (BS Roformer)
+    ("10: De-crowd", "Mel-Roformer"): (34, 0, None),                  # Crowd removal ID 34, opt 1 = 0 (Mel Roformer)
+
+    # 11: Restoration (Denoise & Enhance)
+    ("11: Restoration (Denoise & Enhance)", "DeNoise (aufr33 & gabox)"): (47, 0, None), # DeNoise ID 47, opt 1 = 0
+    ("11: Restoration (Denoise & Enhance)", "Apollo Audio Enhancer"): (51, 3, 0),        # Apollo ID 51, opt 1 = 3, opt 2 = 0
+    ("11: Restoration (Denoise & Enhance)", "AudioSR (Super Resolution)"): (59, 0, None),# AudioSR ID 59, opt 1 = 0
+
+    # 12: Other (Male / Female Vocals)
+    ("12: Other (Male / Female Vocals)", "Mel-RoFormer (2025.01) (Beta Version)"): (57, 2, 1), # MVSep ID 57, opt 1 = 2 (MelRoformer 2025.01), opt 2 = 1 (Extract vocals first with BS Roformer)
+    ("12: Other (Male / Female Vocals)", "Mel-RoFormer (2025.01) (Acapella only) (Beta Version)"): (57, 2, 0), # MVSep ID 57, opt 1 = 2, opt 2 = 0 (Direct from mixture)
+    ("12: Other (Male / Female Vocals)", "SCNet XL (Beta Version)"): (57, 1, 1), # MVSep ID 57, opt 1 = 1 (SCNet XL), opt 2 = 1
+    ("12: Other (Male / Female Vocals)", "BS-RoFormer by aufr33 (Beta Version)"): (57, 3, 1), # MVSep ID 57, opt 1 = 3 (BSRoformer by aufr33), opt 2 = 1
+    ("12: Other (Male / Female Vocals)", "BS-RoFormer by Sucial (Beta Version)"): (57, 0, 1), # MVSep ID 57, opt 1 = 0 (BSRoformer by Sucial), opt 2 = 1
+
+    # Fallbacks for legacy/alternative names
+    ("12: Other (Male / Female Vocals)", "Mel-RoFormer (2025.01)"): (57, 2, 1),
+    ("12: Other (Male / Female Vocals)", "Mel-RoFormer (2025.01) (Acapella only)"): (57, 2, 0),
+    ("12: Other (Male / Female Vocals)", "SCNet XL"): (57, 1, 1),
+    ("12: Other (Male / Female Vocals)", "BS-RoFormer by aufr33"): (57, 3, 1),
+    ("12: Other (Male / Female Vocals)", "BS-RoFormer by Sucial"): (57, 0, 1),
+    ("12: Other (Male / Female Vocals)", "Mel-RoFormer (2025.01) (SDR: 13.03)"): (57, 2, 1),
+    ("12: Other (Male / Female Vocals)", "Mel-RoFormer (2025.01) (Acapella / Vocal only)"): (57, 2, 0),
+    ("12: Other (Male / Female Vocals)", "SCNet XL (SDR: 11.83)"): (57, 1, 1),
+    ("12: Other (Male / Female Vocals)", "BS-RoFormer by aufr33 (SDR: 8.18)"): (57, 3, 1),
+    ("12: Other (Male / Female Vocals)", "BS-RoFormer by Sucial (SDR: 6.52)"): (57, 0, 1),
+    ("12: Other (Male / Female Vocals)", "Mel-RoFormer (Male / Female)"): (57, 2, 1),
+    ("12: Other (Male / Female Vocals)", "Mel-RoFormer (Vocal only)"): (57, 2, 0),
 
     # Fallbacks for string-only lookup
     "Mel-Roformer deux (becruily)": (48, 11, 2),
@@ -97,6 +203,186 @@ MVSEP_CONFIG = {
     "Mel-RoFormer Lead/Back": (49, 0, 1),
     "BS-RoFormer": (41, 0, 0),
     "Mel-RoFormer (Acoustic) β": (66, None, 0)
+}
+
+
+# Descriptions for all AI models (X-Minus Pro style, Bilingual: id / en)
+MODEL_DESCRIPTIONS = {
+    # 1: Music and vocals
+    ("1: Music and vocals", "Mel-Roformer deux (becruily)"): {
+        "en": "The best model for isolating both vocals and music",
+        "id": "Model terbaik untuk memisahkan vokal dan musik"
+    },
+    ("1: Music and vocals", "BS-Roformer HyperACE (unwa)"): {
+        "en": "Less muddy",
+        "id": "Lebih jernih dan minim keruh (Less muddy)"
+    },
+    ("1: Music and vocals", "MDX23C"): {
+        "en": "Fast and balanced separation",
+        "id": "Pemisahan cepat dan seimbang"
+    },
+    ("1: Music and vocals", "BS PolarFormer"): {
+        "en": "New architecture for long audio",
+        "id": "Arsitektur baru untuk audio panjang"
+    },
+
+    # 2: Keep backing vocals
+    ("2: Keep backing vocals", "BS-RoFormer Kar (anvuew)"): {
+        "en": "Preserves backing vocals cleanly",
+        "id": "Mempertahankan vokal latar dengan bersih"
+    },
+    ("2: Keep backing vocals", "BS-RoFormer Kar (frazer & becruily)"): {
+        "en": "Professional karaoke separation",
+        "id": "Pemisahan vokal karaoke profesional"
+    },
+    ("2: Keep backing vocals", "Mel-RoFormer Kar by becruily"): {
+        "en": "Warm harmony and backing vocals",
+        "id": "Menjaga harmoni dan vokal latar"
+    },
+
+    # 3: Extract backing vocals
+    ("3: Extract backing vocals", "Mel-RoFormer Lead/Back"): {
+        "en": "Extracts lead, backing vocals and music",
+        "id": "Memisahkan vokal utama, vokal latar, dan musik"
+    },
+    ("3: Extract backing vocals", "Phantom Center (BS-RoFormer)"): {
+        "en": "Center channel & wide stereo sides",
+        "id": "Pemisahan vokal tengah dan stereo samping"
+    },
+
+    # 4: Bass
+    ("4: Bass", "BS-RoFormer"): {
+        "en": "Dedicated bass isolation",
+        "id": "Isolasi nada bass instrumen"
+    },
+
+    # 5: Drums
+    ("5: Drums", "Mel-RoFormer"): {
+        "en": "Full drum kit and percussion isolation",
+        "id": "Isolasi seluruh perangkat drum dan perkusi"
+    },
+
+    # 6: Guitar
+    ("6: Guitar", "BS Roformer SW"): {
+        "en": "Highest quality guitar separation",
+        "id": "Kualitas separasi gitar terbaik"
+    },
+    ("6: Guitar", "BS Roformer SW (SDR: 9.05)"): {
+        "en": "Highest quality guitar separation",
+        "id": "Kualitas separasi gitar terbaik"
+    },
+    ("6: Guitar", "Mel-RoFormer (2024.06)"): {
+        "en": "Acoustic and electric guitar model",
+        "id": "Model gitar akustik dan elektrik"
+    },
+    ("6: Guitar", "Ensemble (BS + Mel Roformer)"): {
+        "en": "Balanced ensemble for all genres",
+        "id": "Kombinasi seimbang untuk semua genre"
+    },
+    ("6: Guitar", "BS-Roformer (viperx)"): {
+        "en": "Guitar isolation (viperx edition)",
+        "id": "Isolasi gitar (edisi viperx)"
+    },
+    ("6: Guitar", "Mel-RoFormer (Acoustic) β"): {
+        "en": "Acoustic guitar from mixture",
+        "id": "Gitar akustik langsung dari musik"
+    },
+    ("6: Guitar", "Electric Guitar (Mel-Roformer)"): {
+        "en": "Electric guitar isolation",
+        "id": "Isolasi gitar elektrik"
+    },
+    ("6: Guitar", "Lead & Rhythm Guitar (Two-stage)"): {
+        "en": "Splits lead and rhythm guitars",
+        "id": "Memecah lead dan rhythm gitar"
+    },
+    ("6: Guitar", "Pedal Steel Guitar"): {
+        "en": "Pedal steel and slide guitar",
+        "id": "Isolasi pedal steel dan slide gitar"
+    },
+
+    # 7: Saxophone
+    ("7: Saxophone", "BS-RoFormer"): {
+        "en": "High accuracy saxophone isolation",
+        "id": "Isolasi saksofon akurasi tinggi"
+    },
+    ("7: Saxophone", "MelBand Roformer"): {
+        "en": "Alternative saxophone model",
+        "id": "Model saksofon alternatif"
+    },
+
+    # 8: Splitter (Multi-stem)
+    ("8: Splitter (Multi-stem)", "Demucs4 HT (4 stems)"): {
+        "en": "4 stems: vocals, drums, bass, other",
+        "id": "4 trek: vokal, drum, bass, lainnya"
+    },
+    ("8: Splitter (Multi-stem)", "BS-Roformer SW (6 stems)"): {
+        "en": "6 stems: vocals, bass, drums, guitar, piano, other",
+        "id": "6 trek: vokal, bass, drum, gitar, piano, lainnya"
+    },
+    ("8: Splitter (Multi-stem)", "DrumSep (6 stems)"): {
+        "en": "6 drum parts: kick, snare, cymbals, toms, hh, crash",
+        "id": "6 bagian drum: kick, snare, cymbal, tom, hihat, crash"
+    },
+
+    # 9: De-echo / De-reverb
+    ("9: De-echo / De-reverb", "DeReverb stereo (BS-Roformer)"): {
+        "en": "Removes stereo reverb and echo",
+        "id": "Menghilangkan reverb dan gema stereo"
+    },
+    ("9: De-echo / De-reverb", "DeReverb room (BS-Roformer)"): {
+        "en": "Removes room reflections (dry vocal)",
+        "id": "Menghilangkan pantulan ruangan (dry vocal)"
+    },
+    ("9: De-echo / De-reverb", "Reverb removal (Mel-Roformer)"): {
+        "en": "Smooth vocal dereverberation",
+        "id": "Pembersih reverb vokal halus"
+    },
+
+    # 10: De-crowd
+    ("10: De-crowd", "BS-Roformer"): {
+        "en": "Removes audience and crowd noise",
+        "id": "Menghilangkan suara penonton dan kerumunan"
+    },
+    ("10: De-crowd", "Mel-Roformer"): {
+        "en": "Alternative live crowd removal",
+        "id": "Pembersih suara penonton live alternatif"
+    },
+
+    # 11: Restoration (Denoise & Enhance)
+    ("11: Restoration (Denoise & Enhance)", "DeNoise (aufr33 & gabox)"): {
+        "en": "Cleans tape hiss and background noise",
+        "id": "Membersihkan desis kaset dan derau latar"
+    },
+    ("11: Restoration (Denoise & Enhance)", "Apollo Audio Enhancer"): {
+        "en": "Enhances low bitrate and MP3 audio",
+        "id": "Penjernih frekuensi MP3 dan bitrate rendah"
+    },
+    ("11: Restoration (Denoise & Enhance)", "AudioSR (Super Resolution)"): {
+        "en": "Upscales audio to high resolution (48 kHz)",
+        "id": "Meningkatkan resolusi audio ke 48 kHz"
+    },
+
+    # 12: Other (Male / Female Vocals)
+    ("12: Other (Male / Female Vocals)", "Mel-RoFormer (2025.01) (Beta Version)"): {
+        "en": "The best model for separating male and female voices (Beta)",
+        "id": "Model terbaik pemisah vokal pria dan wanita (Beta)"
+    },
+    ("12: Other (Male / Female Vocals)", "Mel-RoFormer (2025.01) (Acapella only) (Beta Version)"): {
+        "en": "Direct separation for tracks that contain only voices (Beta)",
+        "id": "Pemisahan langsung untuk trek yang hanya berisi vokal (tanpa musik) (Beta)"
+    },
+    ("12: Other (Male / Female Vocals)", "SCNet XL (Beta Version)"): {
+        "en": "SCNet XL model for male and female separation (Beta)",
+        "id": "Model SCNet XL untuk pemisahan vokal pria dan wanita (Beta)"
+    },
+    ("12: Other (Male / Female Vocals)", "BS-RoFormer by aufr33 (Beta Version)"): {
+        "en": "BS-Roformer model by aufr33 (Beta)",
+        "id": "Model BS-Roformer racikan aufr33 (Beta)"
+    },
+    ("12: Other (Male / Female Vocals)", "BS-RoFormer by Sucial (Beta Version)"): {
+        "en": "BS-Roformer model by Sucial (Beta)",
+        "id": "Model BS-Roformer racikan Sucial (Beta)"
+    }
 }
 
 # Formats: 0 = MP3 (320kbps), 1 = WAV (16-bit uncompressed)
@@ -252,17 +538,88 @@ def encode_multipart(fields, files):
     content_type = f"multipart/form-data; boundary={boundary}"
     return content_type, body
 
-def get_clean_stem_name(stem_type, category):
+def clean_filename_part(text):
+    text = str(text or "")
+    text = text.replace("Piano: ", "Piano - ").replace("Strings: ", "Strings - ")
+    text = text.replace(": ", " ").replace(":", " ")
+    text = text.replace("/", "-").replace("\\", "-")
+    for ch in '*?"<>|':
+        text = text.replace(ch, "")
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip(" .")
+
+def get_clean_stem_name(stem_type, category, model_name=""):
     s = str(stem_type or "").lower().strip()
     cat = category.lower()
-    if "acoustic" in s and "guitar" in s:
+    m = model_name.lower()
+
+    # Restoration / Noise / Reverb / Crowd
+    if "noreverb" in s or "no-reverb" in s:
+        return "De-reverbed (Dry)"
+    elif "reverb" in s and "no" not in s:
+        return "Reverb only"
+    elif "crowd" in s:
+        return "Crowd Noise"
+    elif "dry" in s or "restored" in s or "clean" in s:
+        return "Restored"
+    elif "noise" in s:
+        return "Noise removed"
+
+    # Phantom center
+    elif "center" in s:
+        return "Center (Phantom)"
+    elif "wide" in s or "sides" in s:
+        return "Sides (Stereo)"
+
+    # Drum components (DrumSep)
+    elif "kick" in s:
+        return "Kick"
+    elif "snare" in s:
+        return "Snare"
+    elif "cymbal" in s:
+        return "Cymbals"
+    elif "tom" in s:
+        return "Toms"
+    elif "hi-hat" in s or "hh" in s:
+        return "Hi-Hat"
+    elif "ride" in s:
+        return "Ride"
+    elif "crash" in s:
+        return "Crash"
+
+    # Instruments & Guitar variants
+    elif "acoustic" in s and "guitar" in s:
         return "Acoustic Guitar"
+    elif "electric" in s and "guitar" in s:
+        return "Electric Guitar"
+    elif "pedal" in s or "steel" in s:
+        return "Pedal Steel Guitar"
+    elif "lead" in s and "guitar" in s:
+        return "Lead Guitar"
+    elif "rhythm" in s and "guitar" in s:
+        return "Rhythm Guitar"
+    elif "all" in s and "guitar" in s:
+        return "All Guitar"
+    elif "no" in s and "guitar" in s:
+        return "Instrumental (no Guitar)"
     elif "guitar" in s:
         return "Guitar"
+    elif "piano" in s:
+        return "Piano"
+    elif "string" in s:
+        return "Strings"
+    elif "sax" in s:
+        return "Saxophone"
     elif "bass" in s:
         return "Bass"
     elif "drum" in s:
         return "Drums"
+
+    # Vocals & Backing vocals & Male / Female
+    elif "female" in s:
+        return "Female Vocals"
+    elif "male" in s:
+        return "Male Vocals"
     elif "back" in s and ("instrum" in s or "music" in s or "+" in s or "track" in s):
         return "Backing Track with BV"
     elif "lead" in s:
@@ -273,6 +630,8 @@ def get_clean_stem_name(stem_type, category):
         return "Instrumental only"
     elif "vocal" in s:
         return "Vocals"
+
+    # Other / Inverted stems based on category
     elif "other" in s or "instrum" in s or "music" in s:
         if "keep backing" in cat:
             return "Backing Track with BV"
@@ -284,9 +643,25 @@ def get_clean_stem_name(stem_type, category):
             return "Instrumental (no Drums)"
         elif "guitar" in cat:
             return "Instrumental (no Guitar)"
+        elif "sax" in cat:
+            return "Instrumental (no Saxophone)"
+        elif "de-crowd" in cat:
+            return "Clean (no Crowd)"
+        elif "other" in cat:
+            if "male" in cat or "female" in cat:
+                return "Instrumental"
+            elif "piano" in m:
+                return "Instrumental (no Piano)"
+            elif "string" in m:
+                return "Instrumental (no Strings)"
+        elif "piano" in cat or "string" in cat:
+            if "piano" in m:
+                return "Instrumental (no Piano)"
+            elif "string" in m:
+                return "Instrumental (no Strings)"
         return "Instrumental"
-    else:
-        return stem_type if stem_type else "Audio"
+
+    return stem_type if stem_type else "Audio"
 
 def cancel_active_queue(api_token):
     if not api_token:
@@ -486,6 +861,9 @@ class VocalRemoverDialog(wx.Dialog):
         self.config["language"] = self.lang
         save_config(self.config)
         self.apply_language(self.lang)
+        cur_cat = self.catCombo.GetStringSelection()
+        cur_model = self.modelCombo.GetStringSelection()
+        self.updateModelList(cur_cat, cur_model)
         ui.message("Bahasa diubah ke Bahasa Indonesia" if self.lang == "id" else "Language changed to English")
 
     def onCheckUpdate(self, evt):
@@ -494,12 +872,17 @@ class VocalRemoverDialog(wx.Dialog):
     def updateModelList(self, category, preferred_model=""):
         models = MODELS_PER_CAT.get(category, [])
         self.modelCombo.Clear()
-        for m in models:
-            self.modelCombo.Append(m)
-        if preferred_model in models:
-            self.modelCombo.SetSelection(models.index(preferred_model))
-        elif models:
-            self.modelCombo.SetSelection(0)
+        pref_idx = 0
+        clean_pref = preferred_model.split("\n")[0].strip() if preferred_model else ""
+        for idx, m in enumerate(models):
+            desc_obj = MODEL_DESCRIPTIONS.get((category, m)) or MODEL_DESCRIPTIONS.get(m, {})
+            desc = desc_obj.get(self.lang, desc_obj.get("en", ""))
+            display_label = f"{m}\n{desc}" if desc else m
+            self.modelCombo.Append(display_label)
+            if m == clean_pref or display_label == preferred_model:
+                pref_idx = idx
+        if models:
+            self.modelCombo.SetSelection(pref_idx)
 
     def onCategoryChange(self, evt):
         selected_cat = self.catCombo.GetStringSelection()
@@ -548,7 +931,8 @@ class VocalRemoverDialog(wx.Dialog):
         t = TEXTS.get(self.lang, TEXTS["id"])
         audio_file = self.selected_file.strip()
         category = self.catCombo.GetStringSelection()
-        model_name = self.modelCombo.GetStringSelection()
+        selected_model_str = self.modelCombo.GetStringSelection()
+        model_name = selected_model_str.split("\n")[0].strip()
         api_token = self.tokenInput.GetValue().strip()
         out_format = self.formatCombo.GetStringSelection()
         out_dir = self.outDirInput.GetValue().strip()
@@ -793,8 +1177,10 @@ class VocalRemoverDialog(wx.Dialog):
                 if not ext:
                     ext = ".mp3" if "MP3" in out_format else ".wav"
 
-                clean_stem = get_clean_stem_name(raw_type, category)
-                target_filename = f"{base_name} ({clean_stem}) ({model_name}){ext}"
+                clean_base = clean_filename_part(base_name)
+                clean_stem = clean_filename_part(get_clean_stem_name(raw_type, category, model_name))
+                clean_model = clean_filename_part(model_name)
+                target_filename = f"{clean_base} ({clean_stem}) ({clean_model}){ext}"
                 target_file_path = os.path.join(out_dir, target_filename)
 
                 ui.message(t["downloading_stem"].format(idx=idx, total=len(download_files), stem=clean_stem))
