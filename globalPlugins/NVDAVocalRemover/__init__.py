@@ -27,7 +27,7 @@ import addonHandler
 
 addonHandler.initTranslation()
 
-CURRENT_VERSION = "1.1.1"
+CURRENT_VERSION = "1.2.0"
 GITHUB_REPO = "hendralmiracle/NVDAVocalRemover"
 
 CONFIG_DIR = os.path.join(os.environ.get('APPDATA', ''), 'NVDAVocalRemover')
@@ -40,7 +40,8 @@ CATEGORIES = [
     "2: Keep backing vocals",
     "3: Extract backing vocals",
     "4: Bass",
-    "5: Drums"
+    "5: Drums",
+    "6: Guitar"
 ]
 
 MODELS_PER_CAT = {
@@ -61,24 +62,41 @@ MODELS_PER_CAT = {
     ],
     "5: Drums": [
         "Mel-RoFormer"
+    ],
+    "6: Guitar": [
+        "Mel-RoFormer",
+        "Mel-RoFormer (Acoustic) β"
     ]
 }
 
 # Mapping to MVSEP API parameters: (sep_type, add_opt1, add_opt2)
 MVSEP_CONFIG = {
     # 1: Music and vocals
-    "Mel-Roformer deux (becruily)": (48, 11, 2),        # MelBand Roformer ID 48, opt 11 = becruily deux
-    "BS-Roformer HyperACE (unwa)": (40, 142, 2),        # BS Roformer ID 40, opt 142 = HyperACE v2 instrum
+    ("1: Music and vocals", "Mel-Roformer deux (becruily)"): (48, 11, 2),        # MelBand Roformer ID 48, opt 11 = becruily deux
+    ("1: Music and vocals", "BS-Roformer HyperACE (unwa)"): (40, 142, 2),        # BS Roformer ID 40, opt 142 = HyperACE v2 instrum
     # 2: Keep backing vocals
-    "BS-RoFormer Kar (anvuew)": (49, 7, 0),             # MVSep Karaoke ID 49, opt 7 = BS Roformer anvuew
-    "BS-RoFormer Kar (frazer & becruily)": (49, 5, 0),  # MVSep Karaoke ID 49, opt 5 = BS Roformer frazer & becruily
-    "Mel-RoFormer Kar by becruily": (49, 1, 0),          # MVSep Karaoke ID 49, opt 1 = MelBand becruily
+    ("2: Keep backing vocals", "BS-RoFormer Kar (anvuew)"): (49, 7, 0),             # MVSep Karaoke ID 49, opt 7 = BS Roformer anvuew
+    ("2: Keep backing vocals", "BS-RoFormer Kar (frazer & becruily)"): (49, 5, 0),  # MVSep Karaoke ID 49, opt 5 = BS Roformer frazer & becruily
+    ("2: Keep backing vocals", "Mel-RoFormer Kar by becruily"): (49, 1, 0),          # MVSep Karaoke ID 49, opt 1 = MelBand becruily
     # 3: Extract backing vocals
-    "Mel-RoFormer Lead/Back": (49, 0, 1),               # MVSep Karaoke ID 49, opt 0 = Mel-Roformer, opt 2 = 1 (Extract vocals first)
+    ("3: Extract backing vocals", "Mel-RoFormer Lead/Back"): (49, 0, 1),               # MVSep Karaoke ID 49, opt 0 = Mel-Roformer, opt 2 = 1 (Extract vocals first)
     # 4: Bass
-    "BS-RoFormer": (41, 0, 0),                          # MVSep Bass ID 41, opt 0 = BS Roformer, opt 2 = 0
+    ("4: Bass", "BS-RoFormer"): (41, 0, 0),                          # MVSep Bass ID 41, opt 0 = BS Roformer, opt 2 = 0
     # 5: Drums
-    "Mel-RoFormer": (44, 1, 0)                          # MVSep Drums ID 44, opt 1 = MelBand Roformer, opt 2 = 0
+    ("5: Drums", "Mel-RoFormer"): (44, 1, 0),                         # MVSep Drums ID 44, opt 1 = MelBand Roformer, opt 2 = 0
+    # 6: Guitar
+    ("6: Guitar", "Mel-RoFormer"): (31, 3, None),                     # MVSep Guitar ID 31, opt 1 = 3 (MelRoformer)
+    ("6: Guitar", "Mel-RoFormer (Acoustic) β"): (66, None, 0),        # MVSep Acoustic Guitar ID 66, opt 2 = 0 (Direct from mixture)
+
+    # Fallbacks for string-only lookup
+    "Mel-Roformer deux (becruily)": (48, 11, 2),
+    "BS-Roformer HyperACE (unwa)": (40, 142, 2),
+    "BS-RoFormer Kar (anvuew)": (49, 7, 0),
+    "BS-RoFormer Kar (frazer & becruily)": (49, 5, 0),
+    "Mel-RoFormer Kar by becruily": (49, 1, 0),
+    "Mel-RoFormer Lead/Back": (49, 0, 1),
+    "BS-RoFormer": (41, 0, 0),
+    "Mel-RoFormer (Acoustic) β": (66, None, 0)
 }
 
 # Formats: 0 = MP3 (320kbps), 1 = WAV (16-bit uncompressed)
@@ -237,7 +255,11 @@ def encode_multipart(fields, files):
 def get_clean_stem_name(stem_type, category):
     s = str(stem_type or "").lower().strip()
     cat = category.lower()
-    if "bass" in s:
+    if "acoustic" in s and "guitar" in s:
+        return "Acoustic Guitar"
+    elif "guitar" in s:
+        return "Guitar"
+    elif "bass" in s:
         return "Bass"
     elif "drum" in s:
         return "Drums"
@@ -260,6 +282,8 @@ def get_clean_stem_name(stem_type, category):
             return "Instrumental (no Bass)"
         elif "drum" in cat:
             return "Instrumental (no Drums)"
+        elif "guitar" in cat:
+            return "Instrumental (no Guitar)"
         return "Instrumental"
     else:
         return stem_type if stem_type else "Audio"
@@ -566,7 +590,7 @@ class VocalRemoverDialog(wx.Dialog):
         filename = os.path.basename(audio_file)
         base_name, _ = os.path.splitext(filename)
 
-        cfg_params = MVSEP_CONFIG.get(model_name)
+        cfg_params = MVSEP_CONFIG.get((category, model_name)) or MVSEP_CONFIG.get(model_name)
         if not cfg_params:
             ui.message(f"Error: Konfigurasi model {model_name} tidak ditemukan.")
             return
@@ -585,11 +609,13 @@ class VocalRemoverDialog(wx.Dialog):
             fields = {
                 "api_token": api_token,
                 "sep_type": str(sep_type),
-                "add_opt1": str(add_opt1),
-                "add_opt2": str(add_opt2),
                 "output_format": output_format_code,
                 "is_demo": "0"
             }
+            if add_opt1 is not None:
+                fields["add_opt1"] = str(add_opt1)
+            if add_opt2 is not None:
+                fields["add_opt2"] = str(add_opt2)
             files = {"audiofile": audio_file}
             content_type, body = encode_multipart(fields, files)
 
